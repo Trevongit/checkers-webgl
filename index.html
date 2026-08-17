@@ -208,7 +208,7 @@
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.22;
     const pmrem = new THREE.PMREMGenerator(renderer);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.18).texture;
     scene.environment = env;
 
     const hemi = new THREE.HemisphereLight(0xffe6c0, 0x1a0c06, 0.55);
@@ -286,14 +286,16 @@
     function pieceMat(side) {
       if (side === "red") {
         return new THREE.MeshPhysicalMaterial({
-          color: 0xb3261c, roughness: 0.18, metalness: 0.25,
-          clearcoat: 0.85, clearcoatRoughness: 0.12,
+          color: 0xb3261c, roughness: 0.28, metalness: 0.18,
+          clearcoat: 1, clearcoatRoughness: 0.08,
+          envMapIntensity: 0.35,
         });
       }
       return new THREE.MeshPhysicalMaterial({
-        color: 0x2a2624, roughness: 0.16, metalness: 0.42,
-        clearcoat: 0.92, clearcoatRoughness: 0.1,
-        sheen: 0.35, sheenColor: new THREE.Color(0x8a8682),
+        color: 0x1c1816, roughness: 0.26, metalness: 0.28,
+        clearcoat: 1, clearcoatRoughness: 0.07,
+        envMapIntensity: 0.4,
+        sheen: 0.2, sheenColor: new THREE.Color(0x6a6662),
       });
     }
 
