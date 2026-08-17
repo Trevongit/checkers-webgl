@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Checkers · WebGL salon</title>
+  <style>
+    :root {
+      --ink: #f3e6d0;
+      --muted: #b39a7a;
+      --gold: #d4b56a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: #120c08; color: var(--ink);
+      font-family: Palatino, "Palatino Linotype", Georgia, serif; overflow: hidden; }
+    #ui {
+      position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+      text-align: center; padding: 0.9rem 1rem 0; pointer-events: none;
+    }
+    #ui * { pointer-events: auto; }
+    .crown { color: var(--gold); letter-spacing: 0.4em; font-size: 1rem; }
+    h1 { margin: 0; font-weight: 600; font-size: 2.2rem; color: #f0d7a4;
+      text-shadow: 0 2px 12px #0008; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin: 0.3rem 0 0.7rem; }
+    .sub .you { color: #c44; font-weight: 600; }
+    .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+    .turn, button {
+      font-family: inherit; font-size: 0.9rem;
+      padding: 0.4rem 0.9rem; border-radius: 0.85rem;
+      border: 1px solid #8a6a3a99; background: #2a1c14cc; color: #f0d7a4;
+    }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--gold); }
+    .rack { margin-top: 0.45rem; color: var(--muted); font-size: 0.85rem; }
+    .hint {
+      position: absolute; left: 50%; bottom: 0.8rem; transform: translateX(-50%);
+      z-index: 2; max-width: 40rem; color: #cbb79a; font-size: 0.75rem;
+      background: #1a120ccc; border: 1px solid #6b4a2888; border-radius: 1rem;
+      padding: 0.65rem 0.9rem; line-height: 1.45;
+    }
+    #c { display: block; width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div class="crown">♔</div>
+    <h1>Checkers</h1>
+    <p class="sub">WebGL salon · you are <span class="you">red</span> · still table</p>
+    <div class="bar">
+      <span id="status" class="turn">Red to move</span>
+      <button type="button" id="reset">New game</button>
+    </div>
+    <div class="rack" id="rack">Red captured 0 · Black captured 0</div>
+  </div>
+  <canvas id="c"></canvas>
+  <p class="hint">
+    Click a disc, then a highlighted square. Jumps are mandatory. Far row kings.
+    Camera stays put. Sister of the CSS salon — same rules, new look.
+    Talk: <strong>#checkers-game-test-room</strong>.
+  </p>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+
+    const SIZE = 8;
+    const statusEl = document.getElementById("status");
+    const rackEl = document.getElementById("rack");
+    const canvas = document.getElementById("c");
+
+    let grid, turn, selected, legal, lastMove, outcome;
+
+    function start() {
+      grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          if ((r + c) % 2 === 1) {
+            if (r < 3) grid[r][c] = { side: "black", king: false };
+            if (r > 4) grid[r][c] = { side: "red", king: false };
+          }
+        }
+      }
+      turn = "red";
+      selected = null;
+      legal = [];
+      lastMove = null;
+      outcome = null;
+      drawPieces();
+      paintHighlights();
+      setStatus();
+    }
+
+    function inside(r, c) { return r >= 0 && r < SIZE && c >= 0 && c < SIZE; }
+    function dirs(p) { return p.king ? [-1, 1] : (p.side === "red" ? [-1] : [1]); }
+
+    function movesFor(r, c) {
+      const p = grid[r][c];
+      if (!p) return { jumps: [], steps: [] };
+      const jumps = [];
+      const steps = [];
+      for (const dr of dirs(p)) {
+        for (const dc of [-1, 1]) {
+          const r1 = r + dr, c1 = c + dc, r2 = r + 2 * dr, c2 = c + 2 * dc;
+          if (inside(r2, c2) && grid[r1][c1] && grid[r1][c1].side !== p.side && !grid[r2][c2]) {
+            jumps.push({ r: r2, c: c2, jump: { r: r1, c: c1 } });
+          } else if (inside(r1, c1) && !grid[r1][c1]) {
+            steps.push({ r: r1, c: c1, jump: null });
+          }
+        }
+      }
+      return { jumps, steps };
+    }
+
+    function allMoves(side) {
+      const jumps = [];
+      const steps = [];
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          if (!grid[r][c] || grid[r][c].side !== side) continue;
+          const m = movesFor(r, c);
+          for (const x of m.jumps) jumps.push({ from: { r, c }, ...x });
+          for (const x of m.steps) steps.push({ from: { r, c }, ...x });
+        }
+      }
+      return jumps.length ? jumps : steps;
+    }
+
+    function apply(from, to) {
+      const p = grid[from.r][from.c];
+      grid[from.r][from.c] = null;
+      if (to.jump) grid[to.jump.r][to.jump.c] = null;
+      if ((p.side === "red" && to.r === 0) || (p.side === "black" && to.r === SIZE - 1)) p.king = true;
+      grid[to.r][to.c] = p;
+      lastMove = { from, to: { r: to.r, c: to.c } };
+      if (to.jump) {
+        const more = movesFor(to.r, to.c).jumps;
+        if (more.length) {
+          selected = { r: to.r, c: to.c };
+          legal = more;
+          drawPieces();
+          paintHighlights();
+          setStatus();
+          return;
+        }
+      }
+      turn = turn === "red" ? "black" : "red";
+      selected = null;
+      legal = [];
+      if (!allMoves(turn).length) outcome = turn === "red" ? "Black wins" : "Red wins";
+      drawPieces();
+      paintHighlights();
+      setStatus();
+    }
+
+    function countSide(side) {
+      let n = 0;
+      for (const row of grid) for (const p of row) if (p && p.side === side) n++;
+      return n;
+    }
+
+    function setStatus() {
+      statusEl.textContent = outcome || (turn === "red" ? "Red to move" : "Black to move");
+      rackEl.textContent =
+        "Red captured " + (12 - countSide("black")) +
+        " · Black captured " + (12 - countSide("red"));
+    }
+
+    function woodTex(w, h, light) {
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const g = cv.getContext("2d");
+      const base = light ? ["#f3d7a4", "#d8a85a", "#c48a3a"] : ["#5a3418", "#2a160c", "#120a06"];
+      g.fillStyle = base[1];
+      g.fillRect(0, 0, w, h);
+      for (let x = 0; x < w; x++) {
+        const n = Math.sin(x * 0.09) * 10 + Math.sin(x * 0.31) * 4;
+        g.fillStyle = x % 17 === 0 ? base[2] : (x % 5 === 0 ? base[0] : base[1]);
+        g.globalAlpha = 0.35 + (x % 3) * 0.08;
+        g.fillRect(x, 0, 1, h);
+        g.globalAlpha = 0.12;
+        g.fillRect(x, n + h * 0.2, 1, h * 0.2);
+      }
+      g.globalAlpha = 1;
+      const tex = new THREE.CanvasTexture(cv);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.anisotropy = 8;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x120c08);
+    scene.fog = new THREE.Fog(0x120c08, 10, 22);
+
+    const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 40);
+    camera.position.set(0, 7.2, 8.6);
+    camera.lookAt(0, 0.2, 0.4);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+
+    const hemi = new THREE.HemisphereLight(0xffe6c0, 0x1a0c06, 0.55);
+    scene.add(hemi);
+    const key = new THREE.DirectionalLight(0xfff0d0, 1.55);
+    key.position.set(-4.5, 9, 3.5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 22;
+    key.shadow.camera.left = key.shadow.camera.bottom = -6;
+    key.shadow.camera.right = key.shadow.camera.top = 6;
+    scene.add(key);
+    scene.add(new THREE.DirectionalLight(0x6a80a0, 0.18).translateX(5).translateY(3));
+
+    const maple = woodTex(512, 512, true);
+    const walnut = woodTex(512, 512, false);
+    maple.repeat.set(1, 1);
+    walnut.repeat.set(1.4, 1.4);
+
+    const table = new THREE.Mesh(
+      new THREE.BoxGeometry(7.4, 0.28, 7.4),
+      new THREE.MeshStandardMaterial({
+        map: walnut, roughness: 0.42, metalness: 0.08, color: 0xffffff,
+      }),
+    );
+    table.position.y = -0.22;
+    table.receiveShadow = true;
+    table.castShadow = true;
+    scene.add(table);
+
+    const lip = new THREE.Mesh(
+      new THREE.BoxGeometry(7.55, 0.08, 7.55),
+      new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.65, roughness: 0.28 }),
+    );
+    lip.position.y = -0.06;
+    scene.add(lip);
+
+    const squares = [];
+    const squareGroup = new THREE.Group();
+    scene.add(squareGroup);
+    const sqGeo = new THREE.BoxGeometry(0.74, 0.05, 0.74);
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const light = (r + c) % 2 === 0;
+        const mat = new THREE.MeshStandardMaterial({
+          map: light ? maple : walnut,
+          roughness: light ? 0.55 : 0.4,
+          metalness: 0.04,
+        });
+        const m = new THREE.Mesh(sqGeo, mat);
+        m.position.set((c - 3.5) * 0.76, 0, (r - 3.5) * 0.76);
+        m.receiveShadow = true;
+        m.userData = { r, c, kind: "sq" };
+        squareGroup.add(m);
+        squares.push(m);
+      }
+    }
+
+    const pieceGroup = new THREE.Group();
+    scene.add(pieceGroup);
+    const discGeo = new THREE.CylinderGeometry(0.28, 0.3, 0.12, 36);
+    const kingRing = new THREE.TorusGeometry(0.16, 0.03, 10, 24);
+
+    function pieceMat(side) {
+      if (side === "red") {
+        return new THREE.MeshPhysicalMaterial({
+          color: 0xb3261c, roughness: 0.18, metalness: 0.25,
+          clearcoat: 0.85, clearcoatRoughness: 0.12,
+        });
+      }
+      return new THREE.MeshPhysicalMaterial({
+        color: 0x1a1614, roughness: 0.22, metalness: 0.35,
+        clearcoat: 0.7, clearcoatRoughness: 0.18,
+      });
+    }
+
+    function drawPieces() {
+      while (pieceGroup.children.length) {
+        const ch = pieceGroup.children[0];
+        pieceGroup.remove(ch);
+      }
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const p = grid[r][c];
+          if (!p) continue;
+          const mesh = new THREE.Mesh(discGeo, pieceMat(p.side));
+          mesh.position.set((c - 3.5) * 0.76, 0.1, (r - 3.5) * 0.76);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          mesh.userData = { r, c, kind: "piece" };
+          if (p.king) {
+            const ring = new THREE.Mesh(
+              kingRing,
+              new THREE.MeshStandardMaterial({ color: 0xe8cc7a, metalness: 0.8, roughness: 0.25 }),
+            );
+            ring.rotation.x = Math.PI / 2;
+            ring.position.y = 0.08;
+            mesh.add(ring);
+          }
+          pieceGroup.add(mesh);
+        }
+      }
+    }
+
+    const hiMats = {
+      pick: new THREE.MeshBasicMaterial({ color: 0xf4e7b0, transparent: true, opacity: 0.28 }),
+      mv: new THREE.MeshBasicMaterial({ color: 0x3d8f4a, transparent: true, opacity: 0.38 }),
+      last: new THREE.MeshBasicMaterial({ color: 0xc9a227, transparent: true, opacity: 0.22 }),
+    };
+    const overlays = [];
+    function clearOverlays() {
+      for (const o of overlays) squareGroup.remove(o);
+      overlays.length = 0;
+    }
+    function addOverlay(r, c, mat) {
+      const o = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.72), mat);
+      o.rotation.x = -Math.PI / 2;
+      o.position.set((c - 3.5) * 0.76, 0.04, (r - 3.5) * 0.76);
+      o.userData = { r, c, kind: "sq" };
+      squareGroup.add(o);
+      overlays.push(o);
+    }
+    function paintHighlights() {
+      clearOverlays();
+      const available = allMoves(turn);
+      if (selected) addOverlay(selected.r, selected.c, hiMats.pick);
+      for (const m of available) {
+        if (m.jump) addOverlay(m.from.r, m.from.c, hiMats.pick);
+      }
+      for (const m of legal) addOverlay(m.r, m.c, hiMats.mv);
+      if (!selected) {
+        for (const m of available) if (m.jump) addOverlay(m.r, m.c, hiMats.mv);
+      }
+      if (lastMove) addOverlay(lastMove.to.r, lastMove.to.c, hiMats.last);
+    }
+
+    const ray = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (outcome) return;
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      ray.setFromCamera(mouse, camera);
+      const hits = ray.intersectObjects([...pieceGroup.children, ...squareGroup.children], true);
+      if (!hits.length) return;
+      let obj = hits[0].object;
+      while (obj && !obj.userData.kind) obj = obj.parent;
+      if (!obj || obj.userData.r == null) return;
+      const { r, c } = obj.userData;
+      const available = allMoves(turn);
+      const dests = (selected ? legal.map((m) => ({ from: selected, ...m })) : available)
+        .filter((m) => m.r === r && m.c === c);
+      if (dests.length === 1) {
+        apply(dests[0].from, dests[0]);
+        return;
+      }
+      const p = grid[r][c];
+      if (p && p.side === turn) {
+        const mine = available.filter((m) => m.from.r === r && m.from.c === c);
+        if (!mine.length) return;
+        selected = { r, c };
+        legal = mine;
+        paintHighlights();
+      }
+    });
+
+    function resize() {
+      const w = innerWidth, h = innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h, false);
+    }
+    addEventListener("resize", resize);
+    resize();
+
+    document.getElementById("reset").onclick = start;
+
+    function tick() {
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    start();
+    tick();
+  </script>
+</body>
+</html>
