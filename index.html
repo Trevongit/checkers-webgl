@@ -67,6 +67,7 @@
   </script>
   <script type="module">
     import * as THREE from "three";
+    import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/environments/RoomEnvironment.js";
 
     const SIZE = 8;
     const statusEl = document.getElementById("status");
@@ -205,7 +206,10 @@
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.28;
+    renderer.toneMappingExposure = 1.22;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = env;
 
     const hemi = new THREE.HemisphereLight(0xffe6c0, 0x1a0c06, 0.55);
     scene.add(hemi);
