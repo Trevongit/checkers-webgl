@@ -219,40 +219,39 @@
     key.shadow.camera.right = key.shadow.camera.top = 6;
     scene.add(key);
     scene.add(new THREE.DirectionalLight(0x6a80a0, 0.18).translateX(5).translateY(3));
+    const spec = new THREE.PointLight(0xfff2d8, 1.1, 10, 2);
+    spec.position.set(-1.2, 2.4, 2.8);
+    scene.add(spec);
 
     const maple = woodTex(512, 512, true);
     const walnut = woodTex(512, 512, false);
     maple.repeat.set(1, 1);
     walnut.repeat.set(1.4, 1.4);
 
-    const table = new THREE.Mesh(
-      new THREE.BoxGeometry(7.9, 0.42, 7.9),
-      new THREE.MeshStandardMaterial({
-        map: walnut, roughness: 0.42, metalness: 0.08, color: 0xffffff,
-      }),
-    );
-    table.position.y = -0.34;
+    const woodMat = new THREE.MeshStandardMaterial({
+      map: walnut, roughness: 0.44, metalness: 0.07, color: 0xffffff,
+    });
+    const table = new THREE.Mesh(new THREE.BoxGeometry(6.55, 0.22, 6.55), woodMat);
+    table.position.y = -0.16;
     table.receiveShadow = true;
     table.castShadow = true;
     scene.add(table);
 
-    const apron = new THREE.Mesh(
-      new THREE.BoxGeometry(8.15, 0.55, 8.15),
-      new THREE.MeshStandardMaterial({
-        map: walnut, roughness: 0.48, metalness: 0.06, color: 0x8a5a30,
-      }),
-    );
-    apron.position.y = -0.62;
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(7.15, 0.48, 7.15), woodMat);
+    apron.position.y = -0.42;
     apron.castShadow = true;
     apron.receiveShadow = true;
     scene.add(apron);
 
-    const lip = new THREE.Mesh(
-      new THREE.BoxGeometry(8.22, 0.06, 8.22),
-      new THREE.MeshStandardMaterial({ color: 0xd4b56a, metalness: 0.72, roughness: 0.22 }),
-    );
-    lip.position.y = -0.08;
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xd4b56a, metalness: 0.78, roughness: 0.22,
+    });
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(6.72, 0.04, 6.72), goldMat);
+    lip.position.y = -0.03;
     scene.add(lip);
+    const outerGold = new THREE.Mesh(new THREE.BoxGeometry(7.22, 0.035, 7.22), goldMat);
+    outerGold.position.y = -0.16;
+    scene.add(outerGold);
 
     const squares = [];
     const squareGroup = new THREE.Group();
